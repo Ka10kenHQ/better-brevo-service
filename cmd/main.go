@@ -16,6 +16,8 @@ func main() {
 	c := cron.New(cron.WithLocation(loc))
 
 	// Run() at 2:00 AM every day
+	// 0 - Minutes
+	// 2 - Hours
 	_, err = c.AddFunc("0 2 * * *", func() {
 		log.Println("Running scheduled task at", time.Now().Format(time.RFC3339))
 		background.Run()

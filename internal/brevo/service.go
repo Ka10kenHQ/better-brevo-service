@@ -16,6 +16,7 @@ import (
 	"time"
 )
 
+const FolderUrl string = "https://api.brevo.com/v3/contacts/folders"
 
 type Config = struct {
 	APIKey      string
@@ -48,7 +49,7 @@ type BrevoContact struct {
 	CreatedAt         string                 `json:"createdAt"`
 	ModifiedAt        string                 `json:"modifiedAt"`
 	ListIds           []int                  `json:"listIds"`
-	Attributes        map[string]any `json:"attributes"`
+	Attributes        map[string]any         `json:"attributes"`
 }
 
 
@@ -134,9 +135,9 @@ type ErrorResult struct {
 func NewBrevoService() (*BrevoService, error) {
 	err := godotenv.Load()
 
-    if err != nil {
-        log.Printf("Warning: Could not load .env file: %v. Falling back to system environment variables.", err)
-    }
+	if err != nil {
+		log.Printf("Warning: Could not load .env file: %v. Falling back to system environment variables.", err)
+	}
 
 	config := Config {
 		APIKey:      os.Getenv("BREVO_API_KEY"),
@@ -145,8 +146,8 @@ func NewBrevoService() (*BrevoService, error) {
 	}
 
 	if config.APIKey == "" || config.SenderName == "" || config.SenderEmail == "" {
-        return nil, fmt.Errorf("missing required environment variables: BREVO_API_KEY, SENDER_NAME, SENDER_EMAIL")
-    }
+		return nil, fmt.Errorf("missing required environment variables: BREVO_API_KEY, SENDER_NAME, SENDER_EMAIL")
+	}
 
 	return &BrevoService{
 		config : config,
@@ -220,6 +221,7 @@ func (b *BrevoService) GetExistingContantsEmail() (map[string]bool, error) {
 				allContacts[strings.ToLower(contact.Email)] = true
 			}
 		}
+
 		log.Printf("Fetched %d contacts (offset: %d). Total so far: %d", len(contactsResp.Contacts), offset, len(allContacts))
 
 		if len(contactsResp.Contacts) < limit {
@@ -236,8 +238,7 @@ func (b *BrevoService) GetExistingContantsEmail() (map[string]bool, error) {
 
 
 func (b *BrevoService) GetOrCreateFolder(name string) (int, error) {
-	url := "https://api.brevo.com/v3/contacts/folders"
-	resp, err := b.makeAPIRequest("GET", url, nil)
+	resp, err := b.makeAPIRequest("GET", FolderUrl, nil)
 
 	if err != nil {
 		return 0, fmt.Errorf("error checking existing folders: %w", err)
@@ -246,30 +247,32 @@ func (b *BrevoService) GetOrCreateFolder(name string) (int, error) {
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(resp.Body)
-    if err != nil {
-        return 0, fmt.Errorf("failed to read folders response body: %w", err)
-    }
-    log.Printf("Folders API response: %d - %s", resp.StatusCode, string(body))
+
+	if err != nil {
+		return 0, fmt.Errorf("failed to read folders response body: %w", err)
+	}
+
+	log.Printf("Folders API response: %d - %s", resp.StatusCode, string(body))
 
 	if resp.StatusCode != http.StatusOK {
-        return 0, fmt.Errorf("failed to fetch folders: status %d - %s", resp.StatusCode, string(body))
-    }
+		return 0, fmt.Errorf("failed to fetch folders: status %d - %s", resp.StatusCode, string(body))
+	}
 
 	var folderResp FoldersResponse
 	if err := json.Unmarshal(body, &folderResp); err != nil {
 		log.Printf("Failed to decode folders response: %v", err)
 	}
-	
+
 	for _, folder := range folderResp.Folders {
 		if folder.Name == name {
 			if folder.ID <= 0 {
-                return 0, fmt.Errorf("invalid folder ID %d for folder '%s'", folder.ID, name)
-            }
-            log.Printf("Found existing folder '%s' with ID: %d", name, folder.ID)
-            return folder.ID, nil
+				return 0, fmt.Errorf("invalid folder ID %d for folder '%s'", folder.ID, name)
+			}
+			log.Printf("Found existing folder '%s' with ID: %d", name, folder.ID)
+			return folder.ID, nil
 		}
 	}
-	
+
 	log.Printf("Folder '%s' not found. Creating new one...", name)
 
 	return b.CreateFolder(name)
@@ -277,10 +280,9 @@ func (b *BrevoService) GetOrCreateFolder(name string) (int, error) {
 
 
 func (b *BrevoService) CreateFolder(name string) (int, error) {
-	url := "https://api.brevo.com/v3/contacts/folders"
 	payload := map[string]string{"name": name}
 
-	resp, err := b.makeAPIRequest("POST", url , payload)
+	resp, err := b.makeAPIRequest("POST", FolderUrl , payload)
 
 	if err != nil {
 		return 0, fmt.Errorf("exception creating folder '%s': %w", name, err)
@@ -289,30 +291,30 @@ func (b *BrevoService) CreateFolder(name string) (int, error) {
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(resp.Body)
-    if err != nil {
-        return 0, fmt.Errorf("failed to read folder creation response body: %w", err)
-    }
+	if err != nil {
+		return 0, fmt.Errorf("failed to read folder creation response body: %w", err)
+	}
 
-    log.Printf("Create Folder API response: %d - %s", resp.StatusCode, string(body))
+	log.Printf("Create Folder API response: %d - %s", resp.StatusCode, string(body))
 
 	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusAccepted {
-        return 0, fmt.Errorf("failed to create folder '%s': status %d - %s", name, resp.StatusCode, string(body))
-    }
+		return 0, fmt.Errorf("failed to create folder '%s': status %d - %s", name, resp.StatusCode, string(body))
+	}
 
-    var result map[string]any
-    
+	var result map[string]any
+
 	if err := json.Unmarshal(body, &result); err != nil {
-        return 0, fmt.Errorf("failed to decode folder creation response: %w", err)
-    }
+		return 0, fmt.Errorf("failed to decode folder creation response: %w", err)
+	}
 
-    folderID, ok := result["id"].(float64)
-    
+	folderID, ok := result["id"].(float64)
+
 	if !ok || folderID <= 0 {
-        return 0, fmt.Errorf("invalid or missing folder ID in response: %v", result)
-    }
+		return 0, fmt.Errorf("invalid or missing folder ID in response: %v", result)
+	}
 
 	log.Printf("Created new folder '%s' with ID: %d", name, int(folderID))
-    return int(folderID), nil
+	return int(folderID), nil
 }
 
 
@@ -336,6 +338,7 @@ func (b *BrevoService) AddContact(email string, existingContacts map[string]bool
 
 
 func (b *BrevoService) buildPayload(email string, listIDs []int, contactData *CSVData) ContactPayload {
+
 	payload := ContactPayload {
 		Email:         email,
 		UpdateEnabled: true,
@@ -417,7 +420,7 @@ func (b *BrevoService) sendContactPayload(email string, payload ContactPayload, 
 
 func (b *BrevoService) isDuplicateSMSError(resp *http.Response, body string) bool {
 	return resp.StatusCode == http.StatusBadRequest && 
-		   strings.Contains(body, "SMS is already associated with another Contact")
+	strings.Contains(body, "SMS is already associated with another Contact")
 }
 
 func (b *BrevoService) LoadHTMLTemplate(filename string) (string, error) {
@@ -429,12 +432,12 @@ func (b *BrevoService) LoadHTMLTemplate(filename string) (string, error) {
 
 	currentDir := filepath.Dir(currentFile)
 
-	path := filepath.Join(currentDir, "..", "static", filename)
+	path := filepath.Join(currentDir, "..", "..", "static", filename)
 
 	data, err := os.ReadFile(path)
-    if err != nil {
-        return "", err
-    }
+	if err != nil {
+		return "", err
+	}
 
 	return string(data), nil
 }
@@ -568,7 +571,7 @@ func (b *BrevoService) retryWithoutSMS(email string, payload ContactPayload) (*h
 		if err != nil {
 			return nil, err
 		}
-		
+
 		body, _ := io.ReadAll(resp.Body)
 		log.Printf("Retry without SMS - Brevo API response: %d - %s", resp.StatusCode, string(body))
 		return resp, nil
@@ -580,18 +583,18 @@ func (b *BrevoService) retryWithoutSMS(email string, payload ContactPayload) (*h
 
 func (b *BrevoService) CreateNewContactList(csvName string) (int, error) {
 	folderID, err := b.GetOrCreateFolder("Winners")
-	
+
 	if err != nil {
 		return 0, fmt.Errorf("failed to get or create folder for contact lists: %w", err)
 	}
 
 	if folderID <= 0 {
-        return 0, fmt.Errorf("invalid folder ID %d for contact list creation", folderID)
-    }
+		return 0, fmt.Errorf("invalid folder ID %d for contact list creation", folderID)
+	}
 
 	now := time.Now().Format("2006-01-02 15:04:05")
 	payload := map[string]any{
-		"name":     fmt.Sprintf("Imported List - %s - %s", csvName, now),
+		"name":     fmt.Sprintf("Winners List - %s", now),
 		"folderId": folderID,
 	}
 
@@ -606,189 +609,190 @@ func (b *BrevoService) CreateNewContactList(csvName string) (int, error) {
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(resp.Body)
-    if err != nil {
-        return 0, fmt.Errorf("failed to read contact list creation response body: %w", err)
-    }
-    log.Printf("Create Contact List API response: %d - %s", resp.StatusCode, string(body))
+	if err != nil {
+		return 0, fmt.Errorf("failed to read contact list creation response body: %w", err)
+	}
 
-    if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusAccepted {
-        return 0, fmt.Errorf("failed to create contact list: status %d - %s", resp.StatusCode, string(body))
-    }
+	log.Printf("Create Contact List API response: %d - %s", resp.StatusCode, string(body))
 
-    var result map[string]any
+	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusAccepted {
+		return 0, fmt.Errorf("failed to create contact list: status %d - %s", resp.StatusCode, string(body))
+	}
 
-    if err := json.Unmarshal(body, &result); err != nil {
-        return 0, fmt.Errorf("failed to decode list creation response: %w", err)
-    }
+	var result map[string]any
 
-    listID, ok := result["id"].(float64)
-    
+	if err := json.Unmarshal(body, &result); err != nil {
+		return 0, fmt.Errorf("failed to decode list creation response: %w", err)
+	}
+
+	listID, ok := result["id"].(float64)
+
 	if !ok || listID <= 0 {
-        return 0, fmt.Errorf("invalid or missing list ID in response: %v", result)
-    }
+		return 0, fmt.Errorf("invalid or missing list ID in response: %v", result)
+	}
 
-    log.Printf("Created new contact list with ID: %d", int(listID))
-    return int(listID), nil
+	log.Printf("Created new contact list with ID: %d", int(listID))
+	return int(listID), nil
 }
 
 func mapCSVToObject(records [][]string) ([]CSVData, error) {
-    if len(records) < 2 {
-        return nil, fmt.Errorf("CSV file is empty or has no data rows")
-    }
+	if len(records) < 2 {
+		return nil, fmt.Errorf("CSV file is empty or has no data rows")
+	}
 
-    expectedColumns := 14
-    data := make([]CSVData, 0, len(records)-1)
+	expectedColumns := 14
+	data := make([]CSVData, 0, len(records)-1)
 
-    for i, row := range records[1:] { 
-        if len(row) != expectedColumns {
-            return nil, fmt.Errorf("row %d has %d columns, expected %d", i+1, len(row), expectedColumns)
-        }
+	for i, row := range records[1:] { 
+		if len(row) != expectedColumns {
+			return nil, fmt.Errorf("row %d has %d columns, expected %d", i+1, len(row), expectedColumns)
+		}
 
-        data = append(data, CSVData{
-            NAT:        row[0],
-            STOP:       row[1],
-            CATEGORY:   row[2],
-            ID:         row[3],
-            Contacts:   row[4],
-            Email:      row[5],
-            Website:    row[6],
-            VendorName: row[7],
-            Address:    row[8],
-            IdCode:     row[9],
-            Phone:      row[10],
-            Fax:        row[11],
-            City:       row[12],
-            Country:    row[13],
-        })
-    }
+		data = append(data, CSVData {
+			NAT:        row[0],
+			STOP:       row[1],
+			CATEGORY:   row[2],
+			ID:         row[3],
+			Contacts:   row[4],
+			Email:      row[5],
+			Website:    row[6],
+			VendorName: row[7],
+			Address:    row[8],
+			IdCode:     row[9],
+			Phone:      row[10],
+			Fax:        row[11],
+			City:       row[12],
+			Country:    row[13],
+		})
+	}
 
-    return data, nil
+	return data, nil
 }
 
 func (b *BrevoService) ProcessCSVAndSendCampaign(csvPath string) (ProcessingResults, error) {
-    results := ProcessingResults{
-        AddedToCampaign:   []ContactResult{},
-        UpdatedContacts:   []ContactResult{},
-        Errors:            []ErrorResult{},
-        TotalExistingContacts: 0,
-    }
+	results := ProcessingResults{
+		AddedToCampaign:   []ContactResult{},
+		UpdatedContacts:   []ContactResult{},
+		Errors:            []ErrorResult{},
+		TotalExistingContacts: 0,
+	}
 
-    file, err := os.Open(csvPath)
-    
+	file, err := os.Open(csvPath)
+
 	if err != nil {
-        return results, fmt.Errorf("failed to open CSV file: %w", err)
-    }
-    defer file.Close()
+		return results, fmt.Errorf("failed to open CSV file: %w", err)
+	}
+	defer file.Close()
 
-    reader := csv.NewReader(file)
-    records, err := reader.ReadAll()
-    
+	reader := csv.NewReader(file)
+	records, err := reader.ReadAll()
+
 	if err != nil {
-        return results, fmt.Errorf("failed to read CSV: %w", err)
-    }
+		return results, fmt.Errorf("failed to read CSV: %w", err)
+	}
 
-    csvData, err := mapCSVToObject(records)
-    
+	csvData, err := mapCSVToObject(records)
+
 	if err != nil {
-        return results, fmt.Errorf("failed to map CSV data: %w", err)
-    }
+		return results, fmt.Errorf("failed to map CSV data: %w", err)
+	}
 
-    existingContacts, err := b.GetExistingContantsEmail()
-    
+	existingContacts, err := b.GetExistingContantsEmail()
+
 	if err != nil {
-        return results, fmt.Errorf("failed to fetch existing contacts: %w", err)
-    }
+		return results, fmt.Errorf("failed to fetch existing contacts: %w", err)
+	}
 
-    results.TotalExistingContacts = len(existingContacts)
+	results.TotalExistingContacts = len(existingContacts)
 
-    csvName := strings.TrimSuffix(filepath.Base(csvPath), ".csv")
-    
+	csvName := strings.TrimSuffix(filepath.Base(csvPath), ".csv")
+
 	listID, err := b.CreateNewContactList(csvName)
-    
+
 	if err != nil {
-        return results, fmt.Errorf("failed to create contact list: %w", err)
-    }
+		return results, fmt.Errorf("failed to create contact list: %w", err)
+	}
 
-    for _, data := range csvData {
-        if data.Email == "" {
-            results.Errors = append(results.Errors, ErrorResult{
-                Email:  data.Email,
-                Error:  "missing email",
-                Details: "Skipping contact with no email address",
-            })
-            continue
-        }
+	for _, data := range csvData {
+		if data.Email == "" {
+			results.Errors = append(results.Errors, ErrorResult{
+				Email:  data.Email,
+				Error:  "missing email",
+				Details: "Skipping contact with no email address",
+			})
+			continue
+		}
 
-        _ , err := b.AddContact(data.Email, existingContacts, []int{listID}, &data)
-        if err != nil {
-            results.Errors = append(results.Errors, ErrorResult{
-                Email:  data.Email,
-                Error:  err.Error(),
-                Details: "Failed to add/update contact",
-            })
-            continue
-        }
+		_ , err := b.AddContact(data.Email, existingContacts, []int{listID}, &data)
+		if err != nil {
+			results.Errors = append(results.Errors, ErrorResult{
+				Email:  data.Email,
+				Error:  err.Error(),
+				Details: "Failed to add/update contact",
+			})
+			continue
+		}
 
-        contactResult := ContactResult{
-            Email: data.Email,
-            Data:  &data,
-        }
+		contactResult := ContactResult{
+			Email: data.Email,
+			Data:  &data,
+		}
 
-        if existingContacts[strings.ToLower(data.Email)] {
-            contactResult.Action = "Updated"
-            results.UpdatedContacts = append(results.UpdatedContacts, contactResult)
-        } else {
-            contactResult.Action = "Added"
-            results.AddedToCampaign = append(results.AddedToCampaign, contactResult)
-        }
-    }
+		if existingContacts[strings.ToLower(data.Email)] {
+			contactResult.Action = "Updated"
+			results.UpdatedContacts = append(results.UpdatedContacts, contactResult)
+		} else {
+			contactResult.Action = "Added"
+			results.AddedToCampaign = append(results.AddedToCampaign, contactResult)
+		}
+	}
 
-    campaignResult := b.CreateNewCampaign(listID)
-    results.CampaignInfo = campaignResult
-    if !campaignResult.Success {
-        results.Errors = append(results.Errors, ErrorResult{
-            Error:  campaignResult.Error,
-            Details: "Failed to create campaign",
-        })
-        return results, nil
-    }
+	campaignResult := b.CreateNewCampaign(listID)
+	results.CampaignInfo = campaignResult
+	if !campaignResult.Success {
+		results.Errors = append(results.Errors, ErrorResult{
+			Error:  campaignResult.Error,
+			Details: "Failed to create campaign",
+		})
+		return results, nil
+	}
 
-    sendResult := b.SendCampaignToContacts(campaignResult.CampaignID)
-    if !sendResult.Success {
-        results.Errors = append(results.Errors, ErrorResult{
-            Error:  sendResult.Error,
-            Details: "Failed to send campaign",
-        })
-    }
+	sendResult := b.SendCampaignToContacts(campaignResult.CampaignID)
+	if !sendResult.Success {
+		results.Errors = append(results.Errors, ErrorResult{
+			Error:  sendResult.Error,
+			Details: "Failed to send campaign",
+		})
+	}
 
-    return results, nil
+	return results, nil
 }
 
 
 func Start(csvPath string) {
-    service, err := NewBrevoService()
-    if err != nil {
-        log.Fatalf("Failed to initialize Brevo service: %v", err)
-    }
+	service, err := NewBrevoService()
+	if err != nil {
+		log.Fatalf("Failed to initialize Brevo service: %v", err)
+	}
 
-    results, err := service.ProcessCSVAndSendCampaign(csvPath)
-    if err != nil {
-        log.Printf("Failed to process CSV and send campaign: %v", err)
+	results, err := service.ProcessCSVAndSendCampaign(csvPath)
+	if err != nil {
+		log.Printf("Failed to process CSV and send campaign: %v", err)
 		return
-    }
+	}
 
-    log.Printf("Processing Results:")
-    log.Printf("Total Existing Contacts: %d", results.TotalExistingContacts)
-    log.Printf("Added Contacts: %d", len(results.AddedToCampaign))
-    log.Printf("Updated Contacts: %d", len(results.UpdatedContacts))
-    log.Printf("Errors: %d", len(results.Errors))
-    log.Printf("Campaign: %s (ID: %d, Success: %v)", 
-        results.CampaignInfo.CampaignName, 
-        results.CampaignInfo.CampaignID, 
-        results.CampaignInfo.Success)
+	log.Printf("Processing Results:")
+	log.Printf("Total Existing Contacts: %d", results.TotalExistingContacts)
+	log.Printf("Added Contacts: %d", len(results.AddedToCampaign))
+	log.Printf("Updated Contacts: %d", len(results.UpdatedContacts))
+	log.Printf("Errors: %d", len(results.Errors))
+	log.Printf("Campaign: %s (ID: %d, Success: %v)", 
+		results.CampaignInfo.CampaignName, 
+		results.CampaignInfo.CampaignID, 
+		results.CampaignInfo.Success)
 
-    for _, errResult := range results.Errors {
-        log.Printf("Error: %s (%s)", errResult.Error, errResult.Details)
-    }
+	for _, errResult := range results.Errors {
+		log.Printf("Error: %s (%s)", errResult.Error, errResult.Details)
+	}
 }
 
